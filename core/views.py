@@ -2,6 +2,7 @@ from django.http import JsonResponse
 from django.views import View
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from django.core.exceptions import ObjectDoesNotExist
 
 from core.models import Variante, Cupon
 from core.services import OrdenService
@@ -18,9 +19,10 @@ class ProcesarOrdenView(View):
         try:
             items = self._extraer_items(request.POST)
             cupon = self._extraer_cupon(request.POST.get("cupon_codigo"))
-            orden = OrdenService().procesar_orden(request.user, items, cupon)
+            cliente = request.user.cliente
+            orden = OrdenService().procesar_orden(cliente, items, cupon)
             return JsonResponse({"ok": True, "orden_id": orden.id}, status=201)
-        except (ValueError, Exception) as e:
+        except (ValueError, ObjectDoesNotExist) as e:
             return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
     @staticmethod
@@ -28,6 +30,8 @@ class ProcesarOrdenView(View):
         """Convierte los datos del POST en lista de {variante, cantidad}."""
         variante_ids = post.getlist("variante_id")
         cantidades   = post.getlist("cantidad")
+        if len(variante_ids) != len(cantidades):
+            raise ValueError("Cada variante debe tener una cantidad.")
         return [
             {"variante": Variante.objects.get(pk=vid), "cantidad": int(cant)}
             for vid, cant in zip(variante_ids, cantidades)

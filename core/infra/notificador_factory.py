@@ -1,5 +1,8 @@
 import os
 
+from django.conf import settings
+from django.core.mail import send_mail
+
 
 # ── Implementaciones de Notificador ───────────────────────────────────────────
 
@@ -14,15 +17,23 @@ class NotificadorMock:
 
 
 class NotificadorEmail:
-    """Usado en producción: enviaría el email real (ej: SendGrid, SES)."""
+    """Usado en producción con el backend de correo configurado en Django."""
 
     def enviar_confirmacion(self, orden):
-        # Aquí iría la integración real con el servicio de email
-        # send_mail(subject, message, from, [orden.cliente.email])
-        raise NotImplementedError("Integrar con servicio de email real (SendGrid, SES, etc.)")
+        return send_mail(
+            f"Confirmación de orden #{orden.id}",
+            f"Tu orden #{orden.id} fue creada correctamente.",
+            settings.DEFAULT_FROM_EMAIL,
+            [orden.cliente.email],
+        )
 
     def enviar_cancelacion(self, orden):
-        raise NotImplementedError("Integrar con servicio de email real.")
+        return send_mail(
+            f"Cancelación de orden #{orden.id}",
+            f"Tu orden #{orden.id} fue cancelada.",
+            settings.DEFAULT_FROM_EMAIL,
+            [orden.cliente.email],
+        )
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────

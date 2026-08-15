@@ -117,3 +117,9 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# La Factory selecciona el notificador; estas opciones permiten probar el modo
+# REAL sin depender de un proveedor externo durante el desarrollo.
+DEFAULT_FROM_EMAIL = 'no-reply@marketplace.local'
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'

@@ -1,4 +1,8 @@
-from core.models import Orden, SubOrden, DetalleOrden, EstadoOrden
+from collections import defaultdict
+
+from django.db import transaction
+
+from core.models import DetalleOrden, EstadoOrden, Orden, SubOrden, Variante
 
 
 class OrdenBuilder:
@@ -31,15 +35,30 @@ class OrdenBuilder:
     # ── Validaciones ──────────────────────────────────────────────────────────
 
     def _validar(self):
+        self._errores = []
         if not self._cliente:
             self._errores.append("Cliente requerido.")
 
         if not self._items:
             self._errores.append("La orden debe tener al menos un item.")
 
+        cantidades_por_variante = defaultdict(int)
         for entry in self._items:
-            variante = entry["variante"]
-            cantidad = entry["cantidad"]
+            if not entry.get("variante") or "cantidad" not in entry:
+                self._errores.append("Cada item requiere variante y cantidad.")
+                continue
+            variante, cantidad = entry["variante"], entry["cantidad"]
+            if not isinstance(cantidad, int) or isinstance(cantidad, bool) or cantidad <= 0:
+                self._errores.append(f"Cantidad inválida para {variante}.")
+                continue
+            cantidades_por_variante[variante.pk] += cantidad
+
+        variantes = {
+            item["variante"].pk: item["variante"]
+            for item in self._items if item.get("variante")
+        }
+        for variante_id, cantidad in cantidades_por_variante.items():
+            variante = variantes[variante_id]
             if not variante.validar_stock(cantidad):
                 self._errores.append(
                     f"Stock insuficiente para {variante} (pedido: {cantidad}, disponible: {variante.stock})."
@@ -52,17 +71,33 @@ class OrdenBuilder:
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
+    @transaction.atomic
     def build(self):
         """
         Valida y persiste la Orden con sus SubÓrdenes y DetalleOrden.
         Retorna la Orden creada.
         Lanza ValueError si hay errores de validación.
         """
+        ids = [entry.get("variante").pk for entry in self._items if entry.get("variante")]
+        bloqueadas = Variante.objects.select_for_update().in_bulk(ids)
+        items = [
+            {"variante": (
+                bloqueadas.get(entry["variante"].pk, entry["variante"])
+                if entry.get("variante") else None
+             ),
+             "cantidad": entry.get("cantidad")}
+            for entry in self._items
+        ]
+        self._items = items
+
         if not self._validar():
             raise ValueError(f"Orden inválida: {'; '.join(self._errores)}")
 
         # Calcular total base
         total = sum(e["variante"].precio * e["cantidad"] for e in self._items)
+
+        if self._cupon and total < self._cupon.compra_minima:
+            raise ValueError("La compra no alcanza el monto mínimo del cupón.")
 
         # Aplicar descuento del cupón
         descuento = 0

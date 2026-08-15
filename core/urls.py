@@ -1,7 +1,10 @@
-from django.contrib import admin
-from django.urls import path, include
+from django.urls import path
+
+from core.views import ProcesarOrdenView
+
+
+app_name = 'core'
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/', include('core.urls')),  # ← agrega esto
+    path('ordenes/', ProcesarOrdenView.as_view(), name='procesar-orden'),
 ]
