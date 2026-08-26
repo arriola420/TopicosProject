@@ -1,6 +1,5 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
-from django.utils import timezone
 
 
 # ─── Enumeraciones ────────────────────────────────────────────────────────────
@@ -50,25 +49,12 @@ class Usuario(AbstractUser):
         verbose_name = 'Usuario'
         verbose_name_plural = 'Usuarios'
 
-    def actualizar_perfil(self, **kwargs):
-        for campo, valor in kwargs.items():
-            setattr(self, campo, valor)
-        self.save()
-
-
 # ─── Cliente ──────────────────────────────────────────────────────────────────
 
 class Cliente(Usuario):
     class Meta:
         verbose_name = 'Cliente'
         verbose_name_plural = 'Clientes'
-
-    def agregar_direccion(self, **datos):
-        return Direccion.objects.create(cliente=self, **datos)
-
-    def ver_historial_ordenes(self):
-        return self.ordenes.all()
-
 
 # ─── Vendedor ─────────────────────────────────────────────────────────────────
 
@@ -83,25 +69,6 @@ class Vendedor(Usuario):
     class Meta:
         verbose_name = 'Vendedor'
         verbose_name_plural = 'Vendedores'
-
-    def publicar_producto(self, **datos):
-        return Producto.objects.create(vendedor=self, **datos)
-
-    def calcular_liquidacion(self, fecha_inicio, fecha_fin):
-        subordenes = self.subordenes.filter(
-            orden__fecha__range=(fecha_inicio, fecha_fin),
-            orden__estado=EstadoOrden.ENTREGADA,
-        )
-        return sum(so.subtotal - so.comision for so in subordenes)
-
-    def actualizar_calificacion(self):
-        califs = self.calificaciones.all()
-        if califs.exists():
-            self.calificacion_promedio = califs.aggregate(
-                models.Avg('puntaje')
-            )['puntaje__avg']
-            self.save()
-
 
 # ─── Dirección ────────────────────────────────────────────────────────────────
 
@@ -151,20 +118,6 @@ class Producto(models.Model):
     def __str__(self):
         return self.nombre
 
-    def agregar_variante(self, **datos):
-        return Variante.objects.create(producto=self, **datos)
-
-    def esta_disponible(self):
-        return self.variantes.filter(stock__gt=0).exists()
-
-    def precio_final(self):
-        """Precio mínimo entre todas las variantes."""
-        variantes = self.variantes.all()
-        if variantes.exists():
-            return min(v.precio for v in variantes)
-        return self.precio_base
-
-
 # ─── Variante (SKU) ───────────────────────────────────────────────────────────
 
 class Variante(models.Model):
@@ -183,21 +136,6 @@ class Variante(models.Model):
     def __str__(self):
         return f"{self.producto.nombre} — {self.get_talla_display()} {self.color}"
 
-    def validar_stock(self, cant):
-        return self.stock >= cant
-
-    def reducir_stock(self, cant):
-        if self.validar_stock(cant):
-            self.stock -= cant
-            self.save()
-            return True
-        return False
-
-    def reponer_stock(self, cant):
-        self.stock += cant
-        self.save()
-
-
 # ─── Cupón ────────────────────────────────────────────────────────────────────
 
 class Cupon(models.Model):
@@ -215,20 +153,6 @@ class Cupon(models.Model):
     def __str__(self):
         return self.codigo
 
-    def es_valido(self):
-        return (
-            self.usos_disponibles > 0 and
-            self.fecha_vencimiento >= timezone.now().date()
-        )
-
-    def calcular_descuento(self, monto):
-        if not self.es_valido() or monto < self.compra_minima:
-            return 0
-        if self.tipo == TipoDescuento.PORCENTAJE:
-            return monto * (self.valor / 100)
-        return min(self.valor, monto)
-
-
 # ─── Carrito ──────────────────────────────────────────────────────────────────
 
 class Carrito(models.Model):
@@ -238,53 +162,6 @@ class Carrito(models.Model):
     class Meta:
         verbose_name = 'Carrito'
 
-    def agregar_item(self, variante, cant):
-        item, creado = ItemCarrito.objects.get_or_create(
-            carrito=self,
-            variante=variante,
-            defaults={'cantidad': cant, 'precio_usuario': variante.precio},
-        )
-        if not creado:
-            item.cantidad += cant
-            item.save()
-        return item
-
-    def eliminar_item(self, item):
-        item.delete()
-
-    def calcular_subtotal(self):
-        return sum(item.calcular_subtotal() for item in self.items.all())
-
-    def vaciar(self):
-        self.items.all().delete()
-
-    def convertir_en_orden(self):
-        orden = Orden.objects.create(cliente=self.cliente, total=self.calcular_subtotal())
-        # Agrupar items por vendedor
-        grupos = {}
-        for item in self.items.select_related('variante__producto__vendedor'):
-            vendedor = item.variante.producto.vendedor
-            grupos.setdefault(vendedor, []).append(item)
-
-        for vendedor, items in grupos.items():
-            subtotal = sum(i.calcular_subtotal() for i in items)
-            suborden = SubOrden.objects.create(
-                orden=orden,
-                vendedor=vendedor,
-                subtotal=subtotal,
-                comision=subtotal * vendedor.comision_pct,
-            )
-            for item in items:
-                DetalleOrden.objects.create(
-                    suborden=suborden,
-                    variante=item.variante,
-                    cantidad=item.cantidad,
-                    precio_usuario=item.precio_usuario,
-                )
-        self.vaciar()
-        return orden
-
-
 class ItemCarrito(models.Model):
     carrito       = models.ForeignKey(Carrito, on_delete=models.CASCADE, related_name='items')
     variante      = models.ForeignKey(Variante, on_delete=models.CASCADE)
@@ -293,10 +170,6 @@ class ItemCarrito(models.Model):
 
     class Meta:
         verbose_name = 'Item de Carrito'
-
-    def calcular_subtotal(self):
-        return self.cantidad * self.precio_usuario
-
 
 # ─── Orden ────────────────────────────────────────────────────────────────────
 
@@ -314,39 +187,6 @@ class Orden(models.Model):
     def __str__(self):
         return f"Orden #{self.pk} — {self.cliente.username}"
 
-    def calcular_total(self):
-        self.total = sum(so.subtotal for so in self.subordenes.all())
-        self.save()
-        return self.total
-
-    def aplicar_cupon(self, cupon):
-        if cupon.es_valido() and self.total >= cupon.compra_minima:
-            descuento = cupon.calcular_descuento(self.total)
-            self.total -= descuento
-            self.cupon = cupon
-            cupon.usos_disponibles -= 1
-            cupon.save()
-            self.save()
-
-    def dividir_por_vendedor(self):
-        return self.subordenes.select_related('vendedor').all()
-
-    def procesar_pago(self, metodo):
-        pago = Pago.objects.create(orden=self, monto=self.total, metodo=metodo)
-        if pago.procesar():
-            self.estado = EstadoOrden.PAGADA
-            self.save()
-            # Reducir stock
-            for so in self.subordenes.all():
-                for detalle in so.detalles.all():
-                    detalle.variante.reducir_stock(detalle.cantidad)
-        return pago
-
-    def cancelar(self):
-        self.estado = EstadoOrden.CANCELADA
-        self.save()
-
-
 # ─── Pago ─────────────────────────────────────────────────────────────────────
 
 class Pago(models.Model):
@@ -361,18 +201,6 @@ class Pago(models.Model):
     class Meta:
         verbose_name = 'Pago'
 
-    def procesar(self):
-        # Aquí se integraría la pasarela de pago real
-        self.estado = 'PROCESADO'
-        self.save()
-        return True
-
-    def reembolsar(self):
-        self.estado = 'REEMBOLSADO'
-        self.save()
-        return True
-
-
 # ─── SubOrden ─────────────────────────────────────────────────────────────────
 
 class SubOrden(models.Model):
@@ -386,21 +214,6 @@ class SubOrden(models.Model):
         verbose_name = 'Sub-Orden'
         verbose_name_plural = 'Sub-Órdenes'
 
-    def calcular_subtotal(self):
-        self.subtotal = sum(d.calcular_subtotal() for d in self.detalles.all())
-        self.save()
-        return self.subtotal
-
-    def calcular_comision(self):
-        self.comision = self.subtotal * self.vendedor.comision_pct
-        self.save()
-        return self.comision
-
-    def actualizar_estado(self, estado):
-        self.estado = estado
-        self.save()
-
-
 # ─── DetalleOrden ─────────────────────────────────────────────────────────────
 
 class DetalleOrden(models.Model):
@@ -412,10 +225,6 @@ class DetalleOrden(models.Model):
     class Meta:
         verbose_name = 'Detalle de Orden'
         verbose_name_plural = 'Detalles de Orden'
-
-    def calcular_subtotal(self):
-        return self.cantidad * self.precio_usuario
-
 
 # ─── Calificación ─────────────────────────────────────────────────────────────
 
@@ -431,5 +240,3 @@ class Calificacion(models.Model):
         verbose_name_plural = 'Calificaciones'
         unique_together = ('vendedor', 'cliente')
 
-    def validar(self):
-        return 1 <= self.puntaje <= 5

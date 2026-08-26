@@ -1,44 +1,101 @@
-from django.http import JsonResponse
-from django.views import View
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import ObjectDoesNotExist
+from django.views.generic import TemplateView
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from core.models import Variante, Cupon
-from core.services import OrdenService
+from core.serializers import CrearOrdenSerializer, OrdenSerializer
+from core.services import OperacionNoPermitida, OrdenNoEncontrada, OrdenService
 
 
-@method_decorator(csrf_exempt, name='dispatch')
-class ProcesarOrdenView(View):
-    """
-    Capa de Interfaz: solo captura datos del request y delega al Service.
-    Responsabilidad única: HTTP in → HTTP out.
-    """
+class HomeView(TemplateView):
+    template_name = 'core/home.html'
+
+
+class OrdenesView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    @staticmethod
+    def _datos_de_entrada(request):
+        if 'items' in request.data:
+            return request.data
+        variante_ids = request.data.getlist('variante_id')
+        cantidades = request.data.getlist('cantidad')
+        return {
+            'items': [
+                {'variante': variante_id, 'cantidad': cantidad}
+                for variante_id, cantidad in zip(variante_ids, cantidades)
+            ],
+            'cupon_codigo': request.data.get('cupon_codigo', ''),
+        }
+
+    def get(self, request):
+        ordenes = OrdenService().listar_ordenes(request.user.cliente)
+        return Response(OrdenSerializer(ordenes, many=True).data)
 
     def post(self, request):
+        serializer = CrearOrdenSerializer(data=self._datos_de_entrada(request))
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         try:
-            items = self._extraer_items(request.POST)
-            cupon = self._extraer_cupon(request.POST.get("cupon_codigo"))
-            cliente = request.user.cliente
-            orden = OrdenService().procesar_orden(cliente, items, cupon)
-            return JsonResponse({"ok": True, "orden_id": orden.id}, status=201)
-        except (ValueError, ObjectDoesNotExist) as e:
-            return JsonResponse({"ok": False, "error": str(e)}, status=400)
+            orden = OrdenService().crear_desde_ids(
+                request.user.cliente,
+                serializer.validated_data['items'],
+                serializer.validated_data.get('cupon_codigo', ''),
+            )
+        except ObjectDoesNotExist:
+            return Response(
+                {'detail': 'Una de las variantes no existe.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(
+            {'ok': True, 'orden_id': orden.id, 'orden': OrdenSerializer(orden).data},
+            status=status.HTTP_201_CREATED,
+        )
 
-    @staticmethod
-    def _extraer_items(post):
-        """Convierte los datos del POST en lista de {variante, cantidad}."""
-        variante_ids = post.getlist("variante_id")
-        cantidades   = post.getlist("cantidad")
-        if len(variante_ids) != len(cantidades):
-            raise ValueError("Cada variante debe tener una cantidad.")
-        return [
-            {"variante": Variante.objects.get(pk=vid), "cantidad": int(cant)}
-            for vid, cant in zip(variante_ids, cantidades)
-        ]
 
-    @staticmethod
-    def _extraer_cupon(codigo):
-        if not codigo:
-            return None
-        return Cupon.objects.filter(codigo=codigo).first()
+class OrdenDetalleView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, orden_id):
+        try:
+            orden = OrdenService().obtener_orden(request.user.cliente, orden_id)
+        except OrdenNoEncontrada as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        return Response(OrdenSerializer(orden).data)
+
+
+class PagarOrdenView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, orden_id):
+        metodo = request.data.get('metodo')
+        if not metodo:
+            return Response(
+                {'detail': 'El método de pago es requerido.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            OrdenService().procesar_pago(request.user.cliente, orden_id, metodo)
+            orden = OrdenService().obtener_orden(request.user.cliente, orden_id)
+        except OrdenNoEncontrada as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        except (OperacionNoPermitida, ValueError) as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(OrdenSerializer(orden).data)
+
+
+class CancelarOrdenView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, orden_id):
+        try:
+            orden = OrdenService().cancelar_orden(request.user.cliente, orden_id)
+        except OrdenNoEncontrada as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        except OperacionNoPermitida as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(OrdenSerializer(orden).data)

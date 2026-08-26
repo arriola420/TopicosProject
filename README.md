@@ -5,11 +5,15 @@ Service Layer, Builder, Factory e inyección de dependencias.
 
 ## Flujo de órdenes
 
-El endpoint `POST /api/ordenes/` recibe listas `variante_id` y `cantidad`, además
-de un `cupon_codigo` opcional.
+El endpoint `POST /api/ordenes/` recibe un JSON con `items` (`variante` y
+`cantidad`) y un `cupon_codigo` opcional. También conserva compatibilidad con
+el formato form-data anterior.
 
-La explicación arquitectónica y el diagrama están en
-[`wiki/Implementacion-del-Patron-Creacional.md`](wiki/Implementacion-del-Patron-Creacional.md).
+La API incluye consulta de órdenes, detalle, pago y cancelación, con respuestas
+`201`, `400`, `404` y `409` según el caso.
+
+La explicación arquitectónica, los diagramas y la evidencia de pruebas están
+publicados en la Wiki de GitHub del repositorio.
 
 ## Notificaciones
 

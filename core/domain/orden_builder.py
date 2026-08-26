@@ -1,8 +1,9 @@
 from collections import defaultdict
 
 from django.db import transaction
+from django.utils import timezone
 
-from core.models import DetalleOrden, EstadoOrden, Orden, SubOrden, Variante
+from core.models import Cupon, DetalleOrden, EstadoOrden, Orden, SubOrden, TipoDescuento, Variante
 
 
 class OrdenBuilder:
@@ -59,15 +60,30 @@ class OrdenBuilder:
         }
         for variante_id, cantidad in cantidades_por_variante.items():
             variante = variantes[variante_id]
-            if not variante.validar_stock(cantidad):
+            if variante.stock < cantidad:
                 self._errores.append(
                     f"Stock insuficiente para {variante} (pedido: {cantidad}, disponible: {variante.stock})."
                 )
 
-        if self._cupon and not self._cupon.es_valido():
+        if self._cupon and not self._cupon_esta_vigente(self._cupon):
             self._errores.append(f"El cupón '{self._cupon.codigo}' no es válido.")
 
         return len(self._errores) == 0
+
+    @staticmethod
+    def _cupon_esta_vigente(cupon):
+        return (
+            cupon.usos_disponibles > 0
+            and cupon.fecha_vencimiento >= timezone.now().date()
+        )
+
+    @classmethod
+    def _calcular_descuento(cls, cupon, monto):
+        if not cls._cupon_esta_vigente(cupon) or monto < cupon.compra_minima:
+            return 0
+        if cupon.tipo == TipoDescuento.PORCENTAJE:
+            return monto * (cupon.valor / 100)
+        return min(cupon.valor, monto)
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
@@ -102,7 +118,7 @@ class OrdenBuilder:
         # Aplicar descuento del cupón
         descuento = 0
         if self._cupon:
-            descuento = self._cupon.calcular_descuento(total)
+            descuento = self._calcular_descuento(self._cupon, total)
             self._cupon.usos_disponibles -= 1
             self._cupon.save()
 
@@ -136,6 +152,7 @@ class OrdenBuilder:
                     precio_usuario=entry["variante"].precio,
                 )
                 # Reducir stock al confirmar
-                entry["variante"].reducir_stock(entry["cantidad"])
+                entry["variante"].stock -= entry["cantidad"]
+                entry["variante"].save(update_fields=('stock',))
 
         return orden

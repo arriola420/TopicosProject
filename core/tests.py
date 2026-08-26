@@ -107,3 +107,45 @@ class ProcesarOrdenViewTests(OrdenFixtureMixin, TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertTrue(response.json()['ok'])
+
+    def test_api_json_rechaza_stock_con_conflicto(self):
+        self.client.force_login(self.cliente)
+        response = self.client.post(
+            reverse('core:ordenes'),
+            {'items': [{'variante': self.variante.pk, 'cantidad': 6}]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_api_detalle_no_expone_orden_de_otro_cliente(self):
+        self.client.force_login(self.cliente)
+        response = self.client.get(reverse('core:orden-detalle', args=[99999]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_pago_no_reduce_stock_por_segunda_vez(self):
+        self.client.force_login(self.cliente)
+        crear = self.client.post(
+            reverse('core:ordenes'),
+            {'items': [{'variante': self.variante.pk, 'cantidad': 1}]},
+            content_type='application/json',
+        )
+        orden_id = crear.json()['orden_id']
+        response = self.client.post(
+            reverse('core:pagar-orden', args=[orden_id]),
+            {'metodo': 'TARJETA'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.stock, 4)
+
+
+class HomeViewTests(TestCase):
+    def test_home_carga(self):
+        response = self.client.get(reverse('home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Marketplace Core')
