@@ -125,3 +125,5 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # REAL sin depender de un proveedor externo durante el desarrollo.
 DEFAULT_FROM_EMAIL = 'no-reply@marketplace.local'
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+LOGIN_REDIRECT_URL = '/api/ordenes/'
+LOGOUT_REDIRECT_URL = '/'
