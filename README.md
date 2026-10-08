@@ -15,6 +15,17 @@ La API incluye consulta de órdenes, detalle, pago y cancelación, con respuesta
 La explicación arquitectónica, los diagramas y la evidencia de pruebas están
 publicados en la Wiki de GitHub del repositorio.
 
+## Strangler Pattern
+
+El procesamiento de pagos dispone de dos versiones coexistentes:
+
+- Django v1: `POST /api/v1/ordenes/<id>/pagar/`.
+- Flask v2: `POST /api/v2/pagos/procesar`.
+
+Nginx actúa como punto único de entrada y selecciona el backend según la URL.
+El borrador listo para publicar en la Wiki se encuentra en
+`docs/wiki/Migracion-a-Microservicios-Strangler-Pattern.md`.
+
 ## Notificaciones
 
 - `NOTIFICADOR_TYPE=MOCK`: salida por consola, valor predeterminado.
@@ -24,4 +35,10 @@ publicados en la Wiki de GitHub del repositorio.
 
 ```shell
 python manage.py test
+```
+
+La arquitectura completa se inicia con:
+
+```shell
+docker compose up -d --build
 ```
