@@ -1,16 +1,102 @@
 from django.core.exceptions import ObjectDoesNotExist
-from django.views.generic import TemplateView
+from django.contrib.auth import login
+from django.shortcuts import redirect
+from django.urls import reverse_lazy
+from django.utils.translation import gettext as _
+from django.views.generic import FormView, TemplateView
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.forms import RegistroClienteForm
+from core.integrations import (
+    CatalogoExternoAdapter,
+    IntegracionNoDisponible,
+    ServicioAliadoAdapter,
+)
+from core.models import Producto
 from core.serializers import CrearOrdenSerializer, OrdenSerializer
 from core.services import OperacionNoPermitida, OrdenNoEncontrada, OrdenService
 
 
 class HomeView(TemplateView):
     template_name = 'core/home.html'
+
+
+class RegistroClienteView(FormView):
+    template_name = 'core/registro.html'
+    form_class = RegistroClienteForm
+    success_url = reverse_lazy('home')
+
+    def form_valid(self, form):
+        usuario = form.save()
+        login(self.request, usuario)
+        return redirect(self.get_success_url())
+
+
+class CatalogoPublicoView(APIView):
+    permission_classes = (AllowAny,)
+
+    def get(self, request):
+        productos = []
+        queryset = Producto.objects.select_related('vendedor', 'categoria').prefetch_related(
+            'variantes'
+        ).order_by('nombre')
+        for producto in queryset:
+            productos.append({
+                'id': producto.id,
+                'nombre': producto.nombre,
+                'descripcion': producto.descripcion,
+                'imagen': producto.imagen_url,
+                'vendedor': producto.vendedor.nombre_marca,
+                'categoria': producto.categoria.nombre if producto.categoria else '',
+                'variantes': [
+                    {
+                        'id': variante.id,
+                        'sku': variante.sku,
+                        'talla': variante.get_talla_display(),
+                        'color': variante.color,
+                        'stock': variante.stock,
+                        'precio': variante.precio,
+                    }
+                    for variante in producto.variantes.all()
+                ],
+            })
+        return Response({
+            'servicio': 'Marketplace Catalog API v1',
+            'productos': productos,
+        })
+
+
+class ServicioAliadoView(APIView):
+    permission_classes = (AllowAny,)
+
+    def get(self, request):
+        try:
+            return Response(ServicioAliadoAdapter().obtener_informacion())
+        except IntegracionNoDisponible as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+
+class RecomendacionesExternasView(APIView):
+    permission_classes = (AllowAny,)
+
+    def get(self, request):
+        try:
+            productos = CatalogoExternoAdapter().obtener_recomendaciones()
+            return Response({
+                'fuente': 'API externa mediante CatalogoExternoAdapter',
+                'productos': productos,
+            })
+        except IntegracionNoDisponible as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
 
 class OrdenesView(APIView):
@@ -46,7 +132,7 @@ class OrdenesView(APIView):
             )
         except ObjectDoesNotExist:
             return Response(
-                {'detail': 'Una de las variantes no existe.'},
+                {'detail': _('Una de las variantes no existe.')},
                 status=status.HTTP_404_NOT_FOUND,
             )
         except ValueError as exc:
@@ -75,7 +161,7 @@ class PagarOrdenView(APIView):
         metodo = request.data.get('metodo')
         if not metodo:
             return Response(
-                {'detail': 'El método de pago es requerido.'},
+                {'detail': _('El método de pago es requerido.')},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:

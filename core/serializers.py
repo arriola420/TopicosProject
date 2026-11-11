@@ -32,8 +32,9 @@ class SubOrdenSerializer(serializers.ModelSerializer):
 
 class OrdenSerializer(serializers.ModelSerializer):
     cupon = serializers.CharField(source='cupon.codigo', read_only=True, allow_null=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
     subordenes = SubOrdenSerializer(many=True, read_only=True)
 
     class Meta:
         model = Orden
-        fields = ('id', 'fecha', 'estado', 'total', 'cupon', 'subordenes')
+        fields = ('id', 'fecha', 'estado', 'estado_display', 'total', 'cupon', 'subordenes')

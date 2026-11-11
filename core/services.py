@@ -1,11 +1,27 @@
+import logging
+from collections import defaultdict
+
 from core.domain.orden_builder import OrdenBuilder
 from core.infra.notificador_factory import NotificadorFactory
 from django.db import models, transaction
+from django.utils.translation import gettext as _
 
 from core.models import (
     Calificacion, Carrito, Cupon, DetalleOrden, EstadoOrden, ItemCarrito,
     MetodoPago, Orden, Pago, Producto, SubOrden, Variante, Vendedor,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _encolar_notificacion(tarea, orden_id):
+    try:
+        tarea.delay(orden_id)
+    except Exception:
+        logger.exception(
+            'No fue posible publicar la notificación de la orden %s.', orden_id
+        )
 
 
 class OrdenNoEncontrada(Exception):
@@ -128,7 +144,7 @@ class OrdenService:
     """
 
     def __init__(self, notificador=None):
-        self.notificador = notificador or NotificadorFactory.crear()
+        self.notificador = notificador
 
     def procesar_orden(self, cliente, items, cupon=None):
         """
@@ -156,7 +172,13 @@ class OrdenService:
             .build()
         )
 
-        self.notificador.enviar_confirmacion(orden)
+        if self.notificador is not None:
+            self.notificador.enviar_confirmacion(orden)
+        else:
+            from core.tasks import enviar_confirmacion_orden
+            transaction.on_commit(
+                lambda: _encolar_notificacion(enviar_confirmacion_orden, orden.pk)
+            )
 
         return orden
 
@@ -172,7 +194,7 @@ class OrdenService:
         if cupon_codigo:
             cupon = Cupon.objects.filter(codigo=cupon_codigo).first()
             if cupon is None:
-                raise ValueError('El cupón indicado no existe.')
+                raise ValueError(_('El cupón indicado no existe.'))
 
         return self.procesar_orden(cliente, variantes, cupon)
 
@@ -182,7 +204,7 @@ class OrdenService:
                 'subordenes__detalles'
             ).get(pk=orden_id, cliente=cliente)
         except Orden.DoesNotExist as exc:
-            raise OrdenNoEncontrada('La orden no existe.') from exc
+            raise OrdenNoEncontrada(_('La orden no existe.')) from exc
 
     def listar_ordenes(self, cliente):
         return Orden.objects.filter(cliente=cliente).prefetch_related(
@@ -193,21 +215,51 @@ class OrdenService:
     def procesar_pago(self, cliente, orden_id, metodo):
         orden = self.obtener_orden(cliente, orden_id)
         if orden.estado != EstadoOrden.PENDIENTE:
-            raise OperacionNoPermitida('Solo se puede pagar una orden pendiente.')
+            raise OperacionNoPermitida(_('Solo se puede pagar una orden pendiente.'))
         if metodo not in MetodoPago.values:
-            raise ValueError('Método de pago inválido.')
+            raise ValueError(_('Método de pago inválido.'))
         pago = Pago.objects.create(orden=orden, monto=orden.total, metodo=metodo)
         if not PagoService.procesar(pago):
-            raise OperacionNoPermitida('El pago no pudo ser procesado.')
+            raise OperacionNoPermitida(_('El pago no pudo ser procesado.'))
         orden.estado = EstadoOrden.PAGADA
         orden.save(update_fields=('estado',))
         return pago
 
+    @transaction.atomic
     def cancelar_orden(self, cliente, orden_id):
-        orden = self.obtener_orden(cliente, orden_id)
+        try:
+            orden = Orden.objects.select_for_update().get(
+                pk=orden_id, cliente=cliente
+            )
+        except Orden.DoesNotExist as exc:
+            raise OrdenNoEncontrada(_('La orden no existe.')) from exc
         if orden.estado != EstadoOrden.PENDIENTE:
-            raise OperacionNoPermitida('Solo se puede cancelar una orden pendiente.')
+            raise OperacionNoPermitida(_('Solo se puede cancelar una orden pendiente.'))
+
+        cantidades = defaultdict(int)
+        for variante_id, cantidad in DetalleOrden.objects.filter(
+            suborden__orden=orden
+        ).values_list('variante_id', 'cantidad'):
+            cantidades[variante_id] += cantidad
+
+        variantes = Variante.objects.select_for_update().in_bulk(cantidades.keys())
+        for variante_id, cantidad in cantidades.items():
+            variante = variantes[variante_id]
+            variante.stock += cantidad
+            variante.save(update_fields=('stock',))
+
         orden.estado = EstadoOrden.CANCELADA
         orden.save(update_fields=('estado',))
-        self.notificador.enviar_cancelacion(orden)
+        orden.subordenes.update(estado=EstadoOrden.CANCELADA)
+        if orden.cupon_id:
+            Cupon.objects.filter(pk=orden.cupon_id).update(
+                usos_disponibles=models.F('usos_disponibles') + 1
+            )
+        if self.notificador is not None:
+            self.notificador.enviar_cancelacion(orden)
+        else:
+            from core.tasks import enviar_cancelacion_orden
+            transaction.on_commit(
+                lambda: _encolar_notificacion(enviar_cancelacion_orden, orden.pk)
+            )
         return orden

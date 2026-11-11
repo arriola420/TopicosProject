@@ -21,6 +21,7 @@ from core.models import (
     Variante,
     Vendedor,
 )
+from core.integrations import CatalogoExternoAdapter, ServicioAliadoAdapter
 from core.services import OrdenService
 
 
@@ -142,10 +143,75 @@ class ProcesarOrdenViewTests(OrdenFixtureMixin, TestCase):
         self.variante.refresh_from_db()
         self.assertEqual(self.variante.stock, 4)
 
+    def test_cancelar_orden_devuelve_el_stock(self):
+        self.client.force_login(self.cliente)
+        crear = self.client.post(
+            reverse('core:ordenes'),
+            {'items': [{'variante': self.variante.pk, 'cantidad': 2}]},
+            content_type='application/json',
+        )
+        orden_id = crear.json()['orden_id']
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.stock, 3)
+
+        response = self.client.post(reverse('core:cancelar-orden', args=[orden_id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.stock, 5)
+
+    def test_catalogo_publico_expone_json_para_equipo_aliado(self):
+        response = self.client.get(reverse('core:catalogo-publico'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['servicio'], 'Marketplace Catalog API v1')
+        self.assertEqual(response.json()['productos'][0]['variantes'][0]['stock'], 5)
+
 
 class HomeViewTests(TestCase):
     def test_home_carga(self):
         response = self.client.get(reverse('home'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Marketplace Core')
+        self.assertContains(response, 'Nómada')
+        self.assertContains(response, 'cargar-catalogo')
+
+    def test_registro_crea_cliente_e_inicia_sesion(self):
+        response = self.client.post(reverse('registro'), {
+            'username': 'nuevo_cliente',
+            'email': 'nuevo@example.com',
+            'telefono': '3001234567',
+            'password1': 'ClaveSegura2026!',
+            'password2': 'ClaveSegura2026!',
+        })
+
+        self.assertRedirects(response, reverse('home'))
+        self.assertTrue(Cliente.objects.filter(username='nuevo_cliente').exists())
+
+
+class IntegracionesAdapterTests(TestCase):
+    @patch('core.integrations.requests.get')
+    def test_adapta_servicio_aliado(self, get):
+        get.return_value.raise_for_status.return_value = None
+        get.return_value.json.return_value = {'estado': 'ok'}
+
+        resultado = ServicioAliadoAdapter('https://aliado.example/api').obtener_informacion()
+
+        self.assertEqual(resultado['fuente'], 'equipo_aliado')
+        self.assertEqual(resultado['datos']['estado'], 'ok')
+
+    @patch('core.integrations.requests.get')
+    def test_adapta_catalogo_externo(self, get):
+        get.return_value.raise_for_status.return_value = None
+        get.return_value.json.return_value = {
+            'products': [{
+                'title': 'Bolso externo', 'price': 42,
+                'thumbnail': 'https://example.com/bolso.png', 'category': 'bags',
+            }]
+        }
+
+        resultado = CatalogoExternoAdapter('https://external.example/products').obtener_recomendaciones()
+
+        self.assertEqual(resultado[0]['nombre'], 'Bolso externo')
+        self.assertEqual(resultado[0]['precio'], 42.0)
+        self.assertEqual(resultado[0]['moneda'], 'USD')

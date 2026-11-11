@@ -1,13 +1,14 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.utils.translation import gettext_lazy as _
 
 
 # ─── Enumeraciones ────────────────────────────────────────────────────────────
 
 class Genero(models.TextChoices):
-    HOMBRE = 'H', 'Hombre'
-    MUJER  = 'M', 'Mujer'
-    UNISEX = 'U', 'Unisex'
+    HOMBRE = 'H', _('Hombre')
+    MUJER  = 'M', _('Mujer')
+    UNISEX = 'U', _('Unisex')
 
 
 class Talla(models.TextChoices):
@@ -19,24 +20,24 @@ class Talla(models.TextChoices):
 
 
 class EstadoOrden(models.TextChoices):
-    PENDIENTE      = 'PENDIENTE',      'Pendiente'
-    PAGADA         = 'PAGADA',         'Pagada'
-    EN_PREPARACION = 'EN_PREPARACION', 'En Preparación'
-    ENVIADA        = 'ENVIADA',        'Enviada'
-    ENTREGADA      = 'ENTREGADA',      'Entregada'
-    CANCELADA      = 'CANCELADA',      'Cancelada'
+    PENDIENTE      = 'PENDIENTE',      _('Pendiente')
+    PAGADA         = 'PAGADA',         _('Pagada')
+    EN_PREPARACION = 'EN_PREPARACION', _('En preparación')
+    ENVIADA        = 'ENVIADA',        _('Enviada')
+    ENTREGADA      = 'ENTREGADA',      _('Entregada')
+    CANCELADA      = 'CANCELADA',      _('Cancelada')
 
 
 class MetodoPago(models.TextChoices):
-    TARJETA  = 'TARJETA',  'Tarjeta'
+    TARJETA  = 'TARJETA',  _('Tarjeta')
     PSE      = 'PSE',      'PSE'
     NEQUI    = 'NEQUI',    'Nequi'
-    EFECTIVO = 'EFECTIVO', 'Efectivo'
+    EFECTIVO = 'EFECTIVO', _('Efectivo')
 
 
 class TipoDescuento(models.TextChoices):
-    PORCENTAJE = 'PORCENTAJE', 'Porcentaje'
-    MONTO_FIJO = 'MONTO_FIJO', 'Monto Fijo'
+    PORCENTAJE = 'PORCENTAJE', _('Porcentaje')
+    MONTO_FIJO = 'MONTO_FIJO', _('Monto fijo')
 
 
 # ─── Usuario (base abstracta) ─────────────────────────────────────────────────
@@ -110,6 +111,7 @@ class Producto(models.Model):
     nombre      = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
     precio_base = models.FloatField()
+    imagen_url  = models.URLField(blank=True)
 
     class Meta:
         verbose_name = 'Producto'

@@ -1,0 +1,54 @@
+openapi: 3.0.3
+info:
+  title: Nómada Marketplace Integration API
+  version: 2.0.0
+  description: Contratos del Entregable 2 para catálogo, integraciones y pagos.
+servers:
+  - url: http://localhost
+paths:
+  /api/v1/integracion/catalogo/:
+    get:
+      summary: Publica el catálogo para el equipo aliado
+      responses:
+        '200':
+          description: Catálogo y variantes disponibles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [servicio, productos]
+                properties:
+                  servicio: {type: string}
+                  productos:
+                    type: array
+                    items: {type: object}
+  /api/v1/integracion/aliado/:
+    get:
+      summary: Consume y adapta el servicio del equipo aliado
+      responses:
+        '200': {description: Respuesta adaptada}
+        '503': {description: URL no configurada o servicio no disponible}
+  /api/v1/integracion/recomendaciones/:
+    get:
+      summary: Consume una API externa mediante Adapter
+      responses:
+        '200': {description: Recomendaciones normalizadas}
+        '503': {description: API externa no disponible}
+  /api/v2/pagos/procesar:
+    post:
+      summary: Procesa un pago en el microservicio Flask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orden_id, monto, metodo]
+              properties:
+                orden_id: {type: integer, minimum: 1}
+                monto: {type: number, exclusiveMinimum: 0}
+                metodo: {type: string, enum: [TARJETA, PSE, NEQUI, EFECTIVO]}
+      responses:
+        '200': {description: Pago procesado}
+        '400': {description: Datos inválidos}
+        '500': {description: Error estructurado del servicio}

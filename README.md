@@ -42,3 +42,14 @@ La arquitectura completa se inicia con:
 ```shell
 docker compose up -d --build
 ```
+
+## Entregable 2
+
+- Interfaz responsive con registro, catálogo y gestión de órdenes mediante botones.
+- API propia: `GET /api/v1/integracion/catalogo/`.
+- Servicio aliado configurable con `ALLY_SERVICE_URL`.
+- API externa encapsulada en `CatalogoExternoAdapter`.
+- Notificaciones asíncronas con Redis y Celery.
+- Interfaz bilingüe ES/EN mediante gettext.
+- Arquitectura documentada en `docs/architecture/entregable-2.md`.
+- Contrato OpenAPI en `docs/openapi.yaml`.

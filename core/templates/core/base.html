@@ -1,0 +1,41 @@
+{% load static i18n %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="{% trans 'Marketplace multivendedor con arquitectura híbrida y resiliente.' %}">
+    <title>{% block title %}{% trans "Nómada Marketplace" %}{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'core/app.css' %}">
+</head>
+<body>
+    <header class="site-header">
+        <a class="brand" href="{% url 'home' %}" aria-label="{% trans 'Ir al inicio' %}"><span class="brand-mark">N</span><span>Nómada</span></a>
+        <nav class="nav-actions" aria-label="{% trans 'Navegación principal' %}">
+            <a href="{% url 'home' %}#catalogo">{% trans "Catálogo" %}</a>
+            <a href="{% url 'home' %}#integraciones">{% trans "Integraciones" %}</a>
+            <form action="{% url 'set_language' %}" method="post" class="language-form">
+                {% csrf_token %}<input name="next" type="hidden" value="{{ request.path }}">
+                {% get_current_language as CURRENT_LANGUAGE %}
+                <select name="language" aria-label="{% trans 'Idioma' %}" onchange="this.form.submit()">
+                    <option value="es" {% if CURRENT_LANGUAGE == 'es' %}selected{% endif %}>ES</option>
+                    <option value="en" {% if CURRENT_LANGUAGE == 'en' %}selected{% endif %}>EN</option>
+                </select>
+            </form>
+            {% if request.user.is_authenticated %}
+                <span class="user-chip">{{ request.user.username }}</span>
+                <form action="{% url 'logout' %}" method="post">{% csrf_token %}<button class="link-button" type="submit">{% trans "Salir" %}</button></form>
+            {% else %}
+                <a href="{% url 'login' %}">{% trans "Ingresar" %}</a>
+                <a class="nav-cta" href="{% url 'registro' %}">{% trans "Crear cuenta" %}</a>
+            {% endif %}
+        </nav>
+    </header>
+    {% block content %}{% endblock %}
+    <footer class="site-footer"><div><strong>Nómada</strong> · {% trans "Marketplace multivendedor" %}</div><div class="architecture-pill">Django · Flask · Nginx · Redis/Celery</div></footer>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
