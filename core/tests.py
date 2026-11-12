@@ -215,3 +215,22 @@ class IntegracionesAdapterTests(TestCase):
         self.assertEqual(resultado[0]['nombre'], 'Bolso externo')
         self.assertEqual(resultado[0]['precio'], 42.0)
         self.assertEqual(resultado[0]['moneda'], 'USD')
+
+
+class ServicioAliadoTests(TestCase):
+    @override_settings(ALLY_SERVICE_URL='http://envios.test/api/v2/envios/tarifas')
+    @patch('core.integrations.requests.get')
+    def test_consulta_al_aliado_con_ciudad(self, get):
+        get.return_value.json.return_value = {'tarifas': [{'ciudad': 'Cali', 'costo': 12000, 'dias': 2}]}
+        response = self.client.get(reverse('core:servicio-aliado'), {'ciudad': 'Cali'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['fuente'], 'equipo_aliado')
+        self.assertEqual(get.call_args.kwargs['params'], {'ciudad': 'Cali'})
+
+    @override_settings(ALLY_SERVICE_URL='http://envios.test/api/v2/envios/tarifas')
+    @patch('core.integrations.requests.get', side_effect=__import__('requests').ConnectionError)
+    def test_devuelve_503_si_el_aliado_no_responde(self, get):
+        response = self.client.get(reverse('core:servicio-aliado'))
+
+        self.assertEqual(response.status_code, 503)

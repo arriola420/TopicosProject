@@ -74,7 +74,8 @@ class ServicioAliadoView(APIView):
 
     def get(self, request):
         try:
-            return Response(ServicioAliadoAdapter().obtener_informacion())
+            ciudad = request.query_params.get('ciudad', '').strip()
+            return Response(ServicioAliadoAdapter().obtener_informacion(ciudad))
         except IntegracionNoDisponible as exc:
             return Response(
                 {'error': str(exc)},

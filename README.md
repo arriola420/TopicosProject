@@ -47,7 +47,7 @@ docker compose up -d --build
 
 - Interfaz responsive con registro, catálogo y gestión de órdenes mediante botones.
 - API propia: `GET /api/v1/integracion/catalogo/`.
-- Servicio aliado configurable con `ALLY_SERVICE_URL`.
+- Servicio aliado de envíos (repo y EC2 independientes), consumido vía `ALLY_SERVICE_URL`.
 - API externa encapsulada en `CatalogoExternoAdapter`.
 - Notificaciones asíncronas con Redis y Celery.
 - Interfaz bilingüe ES/EN mediante gettext.

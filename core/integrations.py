@@ -24,15 +24,25 @@ class ServicioAliadoAdapter:
         self.base_url = (base_url or settings.ALLY_SERVICE_URL).rstrip('/')
         self.timeout = timeout
 
-    def obtener_informacion(self):
+    def obtener_informacion(self, ciudad=''):
         if not self.base_url:
             raise IntegracionNoDisponible(
                 'Falta configurar ALLY_SERVICE_URL con el endpoint del equipo aliado.'
             )
         try:
-            response = requests.get(self.base_url, timeout=self.timeout)
+            params = {'ciudad': ciudad} if ciudad else None
+            response = requests.get(self.base_url, params=params, timeout=self.timeout)
             response.raise_for_status()
             payload = response.json()
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                try:
+                    mensaje = exc.response.json().get('error')
+                except ValueError:
+                    mensaje = None
+                if mensaje:
+                    raise IntegracionNoDisponible(mensaje) from exc
+            raise IntegracionNoDisponible('El servicio aliado no está disponible.') from exc
         except (requests.RequestException, ValueError) as exc:
             raise IntegracionNoDisponible('El servicio aliado no está disponible.') from exc
         return {

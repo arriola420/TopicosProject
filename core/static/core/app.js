@@ -87,15 +87,20 @@
         } catch (error) { toast(error.message, true); }
     });
 
-    async function consultarIntegracion(url, externa=false) {
+    async function consultarIntegracion(url, externa=false, aliado=false) {
         const result = $('#integracion-resultado');
         result.innerHTML = `<div class="empty-state">${escapeHtml(config.text.loading)}</div>`;
         try {
             const data = await api(url);
             if (externa) result.innerHTML = `<div class="external-grid">${(data.productos || []).map(item => `<article class="external-item">${item.imagen ? `<img src="${escapeHtml(item.imagen)}" alt="">` : ''}<h4>${escapeHtml(item.nombre)}</h4><div>${escapeHtml(item.categoria)} · ${money(item.precio, item.moneda || 'USD')}</div></article>`).join('')}</div>`;
+            else if (aliado && data.datos?.tarifas) result.innerHTML = `<div class="external-grid">${data.datos.tarifas.map(t => `<article class="external-item"><h4>${escapeHtml(t.ciudad)}</h4><div>${escapeHtml(config.text.shipping)}: ${money(t.costo, data.datos.moneda || 'COP')} · ${t.dias} ${escapeHtml(config.text.days)}</div></article>`).join('')}</div>`;
             else result.innerHTML = `<pre class="json-result">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
         } catch (error) { result.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`; toast(error.message, true); }
     }
-    $('#consultar-aliado')?.addEventListener('click', () => consultarIntegracion(config.urls.aliado));
+    $('#aliado-form')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const ciudad = $('#ciudad-aliado').value.trim();
+        consultarIntegracion(config.urls.aliado + (ciudad ? `?ciudad=${encodeURIComponent(ciudad)}` : ''), false, true);
+    });
     $('#consultar-externo')?.addEventListener('click', () => consultarIntegracion(config.urls.externo, true));
 })();
